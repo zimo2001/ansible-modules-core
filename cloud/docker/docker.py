@@ -1372,7 +1372,8 @@ def present(manager, containers, count, name):
     delta = count - len(containers.deployed)
 
     if delta > 0:
-        containers.notice_changed(manager.create_containers(delta))
+        created = manager.create_containers(delta)
+        containers.notice_changed(manager.get_inspect_containers(created))
 
     if delta < 0:
         # If both running and stopped containers exist, remove
@@ -1387,8 +1388,8 @@ def present(manager, containers, count, name):
             to_remove.append(c)
 
         manager.stop_containers(to_stop)
+        containers.notice_changed(manager.get_inspect_containers(to_remove))
         manager.remove_containers(to_remove)
-        containers.notice_changed(to_remove)
 
 def started(manager, containers, count, name):
     '''Ensure that exactly `count` matching containers exist and are running.'''
@@ -1404,13 +1405,13 @@ def started(manager, containers, count, name):
 
         created = manager.create_containers(delta)
         manager.start_containers(created)
-        containers.notice_changed(created)
+        containers.notice_changed(manager.get_inspect_containers(created))
 
     if delta < 0:
         excess = containers.running[0:-delta]
+        containers.notice_changed(manager.get_inspect_containers(excess))
         manager.stop_containers(excess)
         manager.remove_containers(excess)
-        containers.notice_changed(excess)
 
 def reloaded(manager, containers, count, name):
     '''
@@ -1444,7 +1445,7 @@ def stopped(manager, containers, count, name):
     containers.refresh()
 
     manager.stop_containers(containers.running)
-    containers.notice_changed(containers.running)
+    containers.notice_changed(manager.get_inspect_containers(containers.running))
 
 def killed(manager, containers, count, name):
     '''Kill any matching containers that are running.'''
@@ -1452,7 +1453,7 @@ def killed(manager, containers, count, name):
     containers.refresh()
 
     manager.kill_containers(containers.running)
-    containers.notice_changed(containers.running)
+    containers.notice_changed(manager.get_inspect_containers(containers.running))
 
 def absent(manager, containers, count, name):
     '''Stop and remove any matching containers.'''
@@ -1460,8 +1461,8 @@ def absent(manager, containers, count, name):
     containers.refresh()
 
     manager.stop_containers(containers.running)
+    containers.notice_changed(manager.get_inspect_containers(containers.deployed))
     manager.remove_containers(containers.deployed)
-    containers.notice_changed(containers.deployed)
 
 def main():
     module = AnsibleModule(
@@ -1561,7 +1562,6 @@ def main():
         module.exit_json(changed=manager.has_changed(),
                          msg=manager.get_summary_message(),
                          summary=manager.counters,
-                         containers=containers.changed,
                          reload_reasons=manager.get_reload_reason_message(),
                          ansible_facts=_ansible_facts(containers.changed))
 
