@@ -20,6 +20,8 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+import re
+
 DOCUMENTATION = '''
 ---
 module: mount
@@ -62,7 +64,7 @@ options:
   state:
     description:
       - If C(mounted) or C(unmounted), the device will be actively mounted or unmounted
-        as needed and appropriately configured in I(fstab). 
+        as needed and appropriately configured in I(fstab).
         C(absent) and C(present) only deal with
         I(fstab) but will not affect current mounting. If specifying C(mounted) and the mount
         point is not present, the mount point will be created. Similarly, specifying C(absent)        will remove the mount point directory.
@@ -79,7 +81,7 @@ options:
 
 notes: []
 requirements: []
-author: 
+author:
     - Ansible Core Team
     - Seth Vidal
 '''
@@ -124,6 +126,8 @@ def set_mount(module, **kwargs):
     origname =  args['name']
     # replace any space in mount name with '\040' to make it fstab compatible (man fstab)
     args['name'] = args['name'].replace(' ', r'\040')
+    # remove trailing slash in mount name (if exists)
+    args['name'] = re.sub('/$','',args['name'])
 
     new_line = '%(src)s %(name)s %(fstype)s %(opts)s %(dump)s %(passno)s\n'
 
@@ -138,15 +142,26 @@ def set_mount(module, **kwargs):
         if line.strip().startswith('#'):
             to_write.append(line)
             continue
-        if len(line.split()) != 6:
-            # not sure what this is or why it is here
-            # but it is not our fault so leave it be
+
+
+        # make lines without dump,passno in fstab comaptible for comparing - adding default zeroes.
+        # lines in fstab with more than 6 elements or less than 4 will be ignored (appended as is).
+        tmp_line = line
+        if len(line.split()) == 5:
+            tmp_line=line.replace('\n',' 0\n')
+        elif len(line.split()) == 4:
+            tmp_line=line.replace('\n',' 0 0\n')
+        elif len(line.split()) < 4 or len(line.split()) > 6:
             to_write.append(line)
             continue
 
         ld = {}
-        ld['src'], ld['name'], ld['fstype'], ld['opts'], ld['dump'], ld['passno']  = line.split()
+        ld['src'], ld['name'], ld['fstype'], ld['opts'], ld['dump'], ld['passno']  = tmp_line.split()
 
+        # remove trailing slash in mount name (if exists)
+        ld['name'] = re.sub('/$','',ld['name'])
+
+        # compares mount names
         if ld['name'] != escaped_args['name']:
             to_write.append(line)
             continue
@@ -190,25 +205,28 @@ def unset_mount(module, **kwargs):
     origname =  args['name']
     # replace any space in mount name with '\040' to make it fstab compatible (man fstab)
     args['name'] = args['name'].replace(' ', r'\040')
+    # remove trailing slash in mount name (if exists)
+    args['name'] = re.sub('/$','',args['name'])
+
 
     to_write = []
     changed = False
+
     escaped_name = _escape_fstab(args['name'])
+
     for line in open(args['fstab'], 'r').readlines():
+
         if not line.strip():
             to_write.append(line)
             continue
         if line.strip().startswith('#'):
             to_write.append(line)
             continue
-        if len(line.split()) != 6:
-            # not sure what this is or why it is here
-            # but it is not our fault so leave it be
-            to_write.append(line)
-            continue
 
         ld = {}
-        ld['src'], ld['name'], ld['fstype'], ld['opts'], ld['dump'], ld['passno']  = line.split()
+
+        # remove trailing slash from mount name
+        ld['name'] = re.sub('/$','',line.split()[1])
 
         if ld['name'] != escaped_name:
             to_write.append(line)
@@ -239,9 +257,9 @@ def mount(module, **kwargs):
     mount_bin = module.get_bin_path('mount')
 
     name = kwargs['name']
-    
+
     cmd = [ mount_bin, ]
-    
+
     if os.path.ismount(name):
         cmd += [ '-o', 'remount', ]
 
@@ -261,7 +279,11 @@ def umount(module, **kwargs):
 
     umount_bin = module.get_bin_path('umount')
     name = kwargs['name']
-    cmd = [umount_bin, name]
+
+    if kwargs['lazy'] == 'yes':
+        cmd = [umount_bin, '-l', name]
+    else:
+        cmd = [umount_bin, name]
 
     rc, out, err = module.run_command(cmd)
     if rc == 0:
@@ -280,7 +302,8 @@ def main():
             dump   = dict(default=None),
             src    = dict(required=True),
             fstype = dict(required=True),
-            fstab  = dict(default='/etc/fstab')
+            fstab  = dict(default='/etc/fstab'),
+            lazy   = dict(default='no', choices=['yes','no'])
         ),
         supports_check_mode=True
     )
@@ -291,7 +314,8 @@ def main():
     args = {
         'name': module.params['name'],
         'src': module.params['src'],
-        'fstype': module.params['fstype']
+        'fstype': module.params['fstype'],
+        'lazy': module.params['lazy']
     }
     if module.params['passno'] is not None:
         args['passno'] = module.params['passno']
