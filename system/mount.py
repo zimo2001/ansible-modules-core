@@ -20,7 +20,6 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
-import re
 
 DOCUMENTATION = '''
 ---
@@ -127,7 +126,7 @@ def set_mount(module, **kwargs):
     # replace any space in mount name with '\040' to make it fstab compatible (man fstab)
     args['name'] = args['name'].replace(' ', r'\040')
     # remove trailing slash in mount name (if exists)
-    args['name'] = re.sub('/$','',args['name'])
+    args['name'] = args['name'].rstrip('/')
 
     new_line = '%(src)s %(name)s %(fstype)s %(opts)s %(dump)s %(passno)s\n'
 
@@ -159,7 +158,7 @@ def set_mount(module, **kwargs):
         ld['src'], ld['name'], ld['fstype'], ld['opts'], ld['dump'], ld['passno']  = tmp_line.split()
 
         # remove trailing slash in mount name (if exists)
-        ld['name'] = re.sub('/$','',ld['name'])
+        ld['name'] = ld['name'].rstrip('/')
 
         # compares mount names
         if ld['name'] != escaped_args['name']:
@@ -226,7 +225,7 @@ def unset_mount(module, **kwargs):
         ld = {}
 
         # remove trailing slash from mount name
-        ld['name'] = re.sub('/$','',line.split()[1])
+        ld['name'] = line.split()[1].rstrip('/')
 
         if ld['name'] != escaped_name:
             to_write.append(line)
